@@ -1,0 +1,71 @@
+---
+- name: Install Nginx offline
+  hosts: client2
+  become: true
+  tasks:
+    - name: Create empty nginx.sh file
+      file:
+        path: /etc/profile.d/nginx.sh
+        state: touch
+        mode: '0644'
+
+    - name: Copy Nginx binary to /tmp
+      copy:
+        src: nginx-1.23.4.tar.gz
+        dest: /tmp/nginx-1.23.4.tar.gz
+
+    - name: Extract Nginx binary
+      shell: |
+        tar -xvzf /tmp/nginx-1.23.4.tar.gz -C /tmp/
+
+    - name: Install Nginx dependencies
+      yum:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - gcc
+        - pcre-devel
+        - zlib-devel
+
+    - name: Configure Nginx
+      shell: |
+        cd /tmp/nginx-1.23.4 && \
+        ./configure && \
+        make && \
+        make install
+
+    - name: Add Nginx to PATH
+      lineinfile:
+        path: /etc/profile.d/nginx.sh
+        line: 'export PATH=$PATH:/usr/local/nginx/sbin'
+
+    - name: Create Nginx service
+      copy:
+        src: nginx.service
+        dest: /etc/systemd/system/nginx.service
+
+    - name: Reboot the machine
+      reboot:
+        msg: "Reboot initiated by Ansible"
+      async: 1
+      poll: 0
+
+    - name: Wait for the machine to come back online
+      wait_for_connection:
+        delay: 10
+        timeout: 300
+
+  handlers:
+    - name: Start and enable Nginx service
+      command: systemctl enable nginx && systemctl start nginx
+
+- name: Allow port 80 in firewall
+  hosts: client2
+  become: true
+  tasks:
+    - name: Enable port 80
+      firewalld:
+        port: 80/tcp
+        permanent: true
+        state: enabled
+        immediate: true
